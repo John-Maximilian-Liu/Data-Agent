@@ -1,0 +1,11 @@
+{
+  "data": [
+    {"type": "bar", "name": "completed", "x": ["2024-06-01"], "y": [1]},
+    {"type": "bar", "name": "abandoned", "x": ["2024-06-01"], "y": [1]}
+  ],
+  "layout": {"title": "Session state distribution", "barmode": "stack", "yaxis": {"title": "count"}},
+  "series_labels": ["abandoned", "completed"],
+  "units": "count",
+  "freshness": "2024-06-01T12:00:00+00:00",
+  "empty_state": null
+}

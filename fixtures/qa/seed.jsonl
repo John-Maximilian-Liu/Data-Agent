@@ -1,0 +1,3 @@
+{"external_case_id":"qa-1","question":"What is 2+2?","expected_answer":"4","language":"en","task_category":"math"}
+{"external_case_id":"qa-2","question":"Name the capital of France.","expected_answer":"Paris","document_labels":["wiki-paris"],"permitted_tools":["search"],"permitted_skills":["lookup"]}
+{"external_case_id":"qa-3","question":"Return JSON {\"ok\":true}","expected_answer":"{\"ok\":true}","fixtures":{"output_contract":{"type":"json"},"tool_effects":{"search":"ok"},"ordering":[["plan","act"]]}}

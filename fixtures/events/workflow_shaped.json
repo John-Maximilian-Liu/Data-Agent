@@ -1,0 +1,13 @@
+{
+  "workflow_id": "wf-1",
+  "agent": "AGENT_ALPHA",
+  "started_at_ms": 1717214400000,
+  "ended_at_ms": 1717214500000,
+  "session": "sess-wf-1",
+  "user": "u-wf",
+  "status": "ok",
+  "steps": [
+    {"type": "llm", "model": "gpt-4o", "in_tok": 10, "out_tok": 5, "call_id": "wf-call-1"},
+    {"type": "tool", "name": "search", "ok": true}
+  ]
+}

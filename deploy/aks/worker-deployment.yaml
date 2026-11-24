@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dataagent-worker
+  labels:
+    app.kubernetes.io/name: dataagent
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dataagent
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dataagent
+        app.kubernetes.io/component: worker
+      annotations:
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: dataagent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: worker
+          image: IMAGE_REF
+          imagePullPolicy: IfNotPresent
+          args: ["worker"]
+          envFrom:
+            - configMapRef:
+                name: dataagent-config
+            - secretRef:
+                name: dataagent-secrets
+                optional: true
+          env:
+            - name: DATAAGENT_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DATAAGENT_AZURE_USE_ENTRA
+              value: "true"
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "15"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
