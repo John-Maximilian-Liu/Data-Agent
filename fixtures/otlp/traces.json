@@ -1,0 +1,45 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "dataagent.agent_id", "value": {"stringValue": "AGENT_ALPHA"}},
+          {"key": "service.name", "value": {"stringValue": "demo-agent"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "abcdef0123456789abcdef0123456789",
+              "spanId": "0123456789abcdef",
+              "name": "chat",
+              "startTimeUnixNano": "1717214400000000000",
+              "endTimeUnixNano": "1717214405000000000",
+              "status": {"code": "STATUS_CODE_OK"},
+              "attributes": [
+                {"key": "gen_ai.request.model", "value": {"stringValue": "gpt-4o"}},
+                {"key": "gen_ai.usage.input_tokens", "value": {"intValue": 20}},
+                {"key": "gen_ai.usage.output_tokens", "value": {"intValue": 8}},
+                {"key": "gen_ai.response.id", "value": {"stringValue": "otlp-call-1"}},
+                {"key": "dataagent.span.kind", "value": {"stringValue": "model"}}
+              ]
+            },
+            {
+              "traceId": "abcdef0123456789abcdef0123456789",
+              "spanId": "fedcba9876543210",
+              "parentSpanId": "0123456789abcdef",
+              "name": "tool:search",
+              "startTimeUnixNano": "1717214401000000000",
+              "endTimeUnixNano": "1717214402000000000",
+              "attributes": [
+                {"key": "dataagent.component_id", "value": {"stringValue": "search"}},
+                {"key": "dataagent.span.kind", "value": {"stringValue": "tool"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

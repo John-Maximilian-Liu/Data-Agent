@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "expand": "steps",
+  "event_id_path": "workflow_id",
+  "fields": {
+    "agent_id": {"path": "$agent"},
+    "occurred_at": {"path": "$ended_at_ms", "timestamp": true, "timestamp_unit": "ms"}
+  },
+  "event_type": {"path": "type", "enum": {"llm": "model.call", "tool": "tool.call"}}
+}

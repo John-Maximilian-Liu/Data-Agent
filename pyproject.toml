@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataagent"
+version = "0.1.0"
+description = "Multi-tenant agent observation, analytics, benchmarks, and experiments"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Data Agent Contributors" }]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "sqlalchemy>=2.0.36",
+  "psycopg[binary]>=3.2.0",
+  "alembic>=1.14.0",
+  "httpx>=0.28.0",
+  "openai>=1.55.0",
+  "azure-identity>=1.19.0",
+  "python-multipart>=0.0.12",
+  "orjson>=3.10.0",
+  "python-jose[cryptography]>=3.3.0",
+  "passlib[bcrypt]>=1.7.4",
+  "cryptography>=43.0.0",
+  "plotly>=5.24.0",
+  "pandas>=2.2.0",
+  "tzdata>=2024.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.8.0",
+  "mypy>=1.13.0",
+  "types-python-jose",
+  "httpx",
+  "anyio",
+]
+otlp = [
+  "protobuf>=5.28.0",
+]
+
+[project.scripts]
+dataagent = "dataagent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dataagent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]
+markers = [
+  "integration: requires PostgreSQL",
+  "slow: load / scale checks",
+  "live: requires external credentials (skipped by default)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
+packages = ["dataagent"]
+
+[tool.coverage.run]
+source = ["dataagent"]
+omit = ["dataagent/cli.py"]

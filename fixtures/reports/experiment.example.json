@@ -1,0 +1,34 @@
+{
+  "experiment_id": "00000000-0000-0000-0000-000000000001",
+  "status": "completed",
+  "suite_coverage": ["fixed_core"],
+  "completed_pairs": 3,
+  "dropped_pairs": [],
+  "dimension_breakdown": {
+    "task_success": {
+      "baseline": {"mean": 1.0, "n": 3},
+      "candidate": {"mean": 0.0, "n": 3}
+    },
+    "tools": {
+      "baseline": {"mean": 1.0, "n": 1},
+      "candidate": {"mean": 0.0, "n": 1}
+    }
+  },
+  "critical_regressions": [
+    {
+      "case_revision_id": "00000000-0000-0000-0000-0000000000aa",
+      "evaluator": "tools",
+      "baseline": 1.0,
+      "candidate": 0.0,
+      "component": "unapproved tool selection"
+    }
+  ],
+  "gates": {
+    "quality": {"decision": "fail", "reason": "critical_regression", "count": 1, "denominator": 3},
+    "reliability": {"decision": "pass", "failure_rate": 0.0, "denominator": 6},
+    "latency": {"decision": "pass", "baseline_ms": 800, "candidate_ms": 5000},
+    "cost": {"decision": "pass", "mean_cost": 0.03, "uncertain": 0}
+  },
+  "gate_decision": "fail",
+  "missing_signals": ["observable_path"]
+}

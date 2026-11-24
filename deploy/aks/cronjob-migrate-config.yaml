@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dataagent-enqueue-daily
+spec:
+  schedule: "5 0 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: dataagent
+          restartPolicy: OnFailure
+          containers:
+            - name: enqueue
+              image: IMAGE_REF
+              args: ["enqueue-daily"]
+              envFrom:
+                - configMapRef:
+                    name: dataagent-config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dataagent-migrate
+spec:
+  template:
+    spec:
+      serviceAccountName: dataagent
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: IMAGE_REF
+          args: ["migrate"]
+          envFrom:
+            - configMapRef:
+                name: dataagent-config
+            - secretRef:
+                name: dataagent-secrets
+                optional: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dataagent-config
+data:
+  DATAAGENT_API_HOST: "0.0.0.0"
+  DATAAGENT_API_PORT: "8000"
+  DATAAGENT_AZURE_TRANSPORT: "live"
+  DATAAGENT_DEFAULT_TIMEZONE: "UTC"
+  # DATAAGENT_DATABASE_URL supplied via Secret
+  # DATAAGENT_AZURE_OPENAI_ENDPOINT supplied via Secret / Workload ID
