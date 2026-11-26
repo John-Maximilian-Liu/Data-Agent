@@ -1,127 +1,129 @@
 # Data Agent
 
-**从线上 Agent 用量，到可审计的发版决策。**
+**Languages:** **English** · [中文](README.zh.md) · [日本語](README.ja.md) · [Deutsch](README.de.md)
 
-多租户平台：采集生产 Agent 的会话 / 用量 / 反馈，生成每日指标与图表，用种子问答与治理后的流量维护版本化基准集，并在发版前对比候选版本与当前生产版本。
+**From live agent usage to auditable release decisions.**
+
+A multi-tenant platform that observes production agents, produces daily metrics and charts, maintains versioned benchmarks from seed Q&A and governed traffic, and compares candidate releases against current production.
 
 <p align="center">
   <img src="docs/assets/architecture.png" alt="Data Agent architecture — From live agent usage to release decisions" width="100%" />
 </p>
 
-<p align="center"><em>From live agent usage to release decisions — 多租户分析、演进中的基准集、发版前评估</em></p>
+<p align="center"><em>From live agent usage to release decisions — multi-tenant analytics, evolving benchmarks, and pre-release evaluation</em></p>
 
 ---
 
-## 目录
+## Table of contents
 
-1. [它解决什么问题](#1-它解决什么问题)
-2. [系统怎么工作](#2-系统怎么工作)
-3. [5 分钟本地跑通](#3-5-分钟本地跑通)
-4. [核心概念（必读）](#4-核心概念必读)
-5. [角色怎么上手](#5-角色怎么上手)
-6. [用 SDK 接入生产流量](#6-用-sdk-接入生产流量)
-7. [每日分析与图表](#7-每日分析与图表)
-8. [基准集：导入、刷新、发版](#8-基准集导入刷新发版)
-9. [发版前实验](#9-发版前实验)
-10. [权限与模块开关](#10-权限与模块开关)
-11. [HTTP API 速查](#11-http-api-速查)
-12. [部署与迁移](#12-部署与迁移)
-13. [配置与排障](#13-配置与排障)
-14. [进一步阅读](#14-进一步阅读)
-
----
-
-## 1. 它解决什么问题
-
-| 痛点 | Data Agent 怎么做 |
-|------|-------------------|
-| 多个 Agent / 团队共用一套观测，权限容易串 | **Tenant → Project → Agent → Release** 硬边界；角色绑定到具体 Agent / 组 / 全项目 |
-| 埋点格式不一（SDK、OTLP、旧系统 JSON） | 统一成规范事件；OTLP 与声明式 JSON 映射（带版本与 dry-run） |
-| 指标口径漂、跨 Agent 重复计数 | 指标注册表 + 项目时区日切；**先按授权 Agent 过滤再聚合** |
-| 基准集靠手工、发版前后不可比 | 种子 QA → 日更候选 → 评审发布；历史 manifest 可复跑 |
-| 候选版本「感觉更好」无法证明 | 同基准版本上 baseline vs candidate；规则 + Azure OpenAI 裁判；门禁与叙述解耦 |
-
-**设计原则（贯穿全链路）：** 访问规则从摄入到报表一致生效；默认拒绝；敏感字段（成本、原文、holdout、裁判细节）需显式授权。
+1. [What it solves](#1-what-it-solves)
+2. [How the system works](#2-how-the-system-works)
+3. [Get running in 5 minutes](#3-get-running-in-5-minutes)
+4. [Core concepts](#4-core-concepts)
+5. [Get started by role](#5-get-started-by-role)
+6. [Ingest production traffic with the SDK](#6-ingest-production-traffic-with-the-sdk)
+7. [Daily analytics and charts](#7-daily-analytics-and-charts)
+8. [Benchmarks: import, refresh, publish](#8-benchmarks-import-refresh-publish)
+9. [Pre-release experiments](#9-pre-release-experiments)
+10. [Permissions and module flags](#10-permissions-and-module-flags)
+11. [HTTP API cheat sheet](#11-http-api-cheat-sheet)
+12. [Deploy and migrate](#12-deploy-and-migrate)
+13. [Configuration and troubleshooting](#13-configuration-and-troubleshooting)
+14. [Further reading](#14-further-reading)
 
 ---
 
-## 2. 系统怎么工作
+## 1. What it solves
 
-上图从左到右：
+| Pain | What Data Agent does |
+|------|----------------------|
+| Shared observability across agents/teams leaks access | Hard boundary **Tenant → Project → Agent → Release**; roles bind to agent, group, or whole project |
+| Heterogeneous telemetry (SDK, OTLP, legacy JSON) | Normalize to canonical events; OTLP and versioned declarative JSON mappings with dry-run |
+| Drifting metric definitions / cross-agent double counts | Metric registry + project timezone day cuts; **filter authorized agents before aggregation** |
+| Hand-built benchmarks, not comparable across releases | Seed QA → daily candidates → review → publish; historical manifests stay runnable |
+| “Feels better” release decisions | Same benchmark version: baseline vs candidate; rules + Azure OpenAI judging; gates independent of narrative |
+
+**Principle:** Access rules apply from intake through reporting. Default deny. Sensitive fields (cost, raw text, holdout, judge detail) need explicit grants.
+
+---
+
+## 2. How the system works
+
+Left to right in the diagram:
 
 ```
-生产 Agent / 反馈 / 旧系统 / 种子 QA
+Production agents / feedback / legacy systems / seed QA
         │
         ▼
-   摄入与校验（鉴权 · 规范化 · 去重 · 脱敏）
+   Intake & validation (auth · normalize · dedupe · redact)
         │
-        ├─► 每日分析（DAU/MAU、评分、成本、工具/技能排行）
-        ├─► 基准更新（候选 → 评审 → 发布 core / rolling / regression）
-        └─► 发版前评估（基线 vs 候选 · 评分 · 回归门禁）
+        ├─► Daily analytics (DAU/MAU, ratings, cost, tool/skill ranking)
+        ├─► Benchmark updates (candidates → review → publish core / rolling / regression)
+        └─► Pre-release evaluation (baseline vs candidate · scoring · regression gates)
                 │
                 ▼
-     业务看板 · Admin/评审 · 研发对比 · SDK / HTTP API
+     Business dashboards · Admins/reviewers · Developers · SDK / HTTP API
 ```
 
-- **存储与任务**：PostgreSQL 持久化事件、基准、权限与作业；Worker 用租约 + fencing token 认领任务，可中断恢复。
-- **模型调用**：本系统自身的裁判 / 报告叙述一律走 **Azure OpenAI**（本地默认可切 `fake` 传输，无需真实密钥）。
-- **部署**：Phase 1 在 AKS 跑 API + Worker；Phase 2 可将 Worker 迁到阿里云 Agent Sandbox，**同一镜像 digest**，库与调度留在外部。
+- **Storage & jobs:** PostgreSQL holds events, benchmarks, permissions, and jobs. Workers claim work with leases and fencing tokens; unfinished work can resume.
+- **LLM calls:** Judge and report narrative in this system always use **Azure OpenAI** (local default: `fake` transport, no real credentials required).
+- **Deploy:** Phase 1 runs API + Worker on AKS. Phase 2 can move the Worker to Alibaba Cloud Agent Sandbox with the **same image digest**; DB, secrets, stable API, and scheduler stay outside the sandbox.
 
 ---
 
-## 3. 5 分钟本地跑通
+## 3. Get running in 5 minutes
 
-### 前置
+### Prerequisites
 
 - Python **3.12+**
-- PostgreSQL **16+**（本机或 Docker）
+- PostgreSQL **16+** (local or Docker)
 
-### 一键 Compose（推荐）
+### Docker Compose (recommended)
 
 ```bash
 git clone https://github.com/John-Maximilian-Liu/Data-Agent.git
 cd Data-Agent
 docker compose up --build
 # API: http://127.0.0.1:8000
-# 健康检查: curl http://127.0.0.1:8000/readyz
+# Health: curl http://127.0.0.1:8000/readyz
 ```
 
-### 本机开发安装
+### Local development
 
 ```bash
-# 1) 数据库
+# 1) Database
 export DATAAGENT_DATABASE_URL=postgresql+psycopg://dataagent:dataagent@127.0.0.1:5432/dataagent
-export DATAAGENT_AUTH_MODE=offline          # 仅开发；production 环境会拒绝
-export DATAAGENT_AZURE_TRANSPORT=fake       # 离线假 Azure，无需真实密钥
+export DATAAGENT_AUTH_MODE=offline          # development only; rejected in production
+export DATAAGENT_AZURE_TRANSPORT=fake       # offline fake Azure — no real key needed
 export DATAAGENT_ENVIRONMENT=development
 
-# 2) 安装
+# 2) Install
 pip install -e ".[dev]" -e "./packages/dataagent-sdk"
 
-# 3) 迁移 + 冒烟
-dataagent migrate    # 或: alembic upgrade head
-dataagent smoke      # 应输出 schema_ok
+# 3) Migrate + smoke
+dataagent migrate    # or: alembic upgrade head
+dataagent smoke      # expect: schema_ok
 
-# 4) 启动（两个终端）
+# 4) Start (two terminals)
 dataagent api        # :8000
 dataagent worker
 
-# 5) 离线演示：种子租户/Agent、摄入、基准 v1、跑实验
+# 5) Offline demo: seed tenants/agents, ingest, benchmark v1, run experiment
 dataagent demo
 ```
 
-`demo` 会打印 JSON，记下其中的 `project_id`、`agents`、`experiment_id`，后面示例都会用到。
+`demo` prints JSON — keep `project_id`, `agents`, and `experiment_id` for later examples.
 
-### 打开文档与健康检查
+### Health and docs
 
-| 地址 | 说明 |
-|------|------|
-| `GET /healthz` | 存活 |
-| `GET /readyz` | 就绪（含 schema 检查） |
-| `GET /docs` | Swagger UI（OpenAPI） |
-| `GET /v1/meta` | 系统角色与默认模块 |
+| URL | Purpose |
+|-----|---------|
+| `GET /healthz` | Liveness |
+| `GET /readyz` | Readiness (includes schema check) |
+| `GET /docs` | Swagger UI (OpenAPI) |
+| `GET /v1/meta` | System roles and default modules |
 
-离线模式用请求头模拟登录用户：
+Offline auth uses a request header:
 
 ```http
 X-Dataagent-Principal: demo-admin
@@ -129,59 +131,59 @@ X-Dataagent-Principal: demo-admin
 
 ---
 
-## 4. 核心概念（必读）
+## 4. Core concepts
 
-### 层级
+### Hierarchy
 
-| 层级 | 含义 |
-|------|------|
-| **Tenant** | 组织硬边界，不可跨租户共享数据 |
-| **Project** | 工作空间；拥有时区、模块开关、来源与基准 |
-| **Agent** | 被观测/评估的应用；状态：`active` / `paused` / `archived` |
-| **Release** | Agent 的稳定版本；登记测试 endpoint 或 CI 目标 |
-| **Agent Group** | 项目内集合，**只作授权选择器**，本身不赋权 |
+| Level | Meaning |
+|-------|---------|
+| **Tenant** | Hard org boundary — no cross-tenant data sharing |
+| **Project** | Workspace with timezone, module flags, sources, and benchmarks |
+| **Agent** | Observed / evaluated application; status: `active` / `paused` / `archived` |
+| **Release** | Stable agent version; register test endpoint or CI target |
+| **Agent Group** | In-project collection used **only as a scope selector** — grants no permissions by itself |
 
-### 三条工作流
+### Three workflows
 
-1. **每日分析** — 会话量、完成率、业务成功率、评分、DAU/MAU、Token/成本、Top KB/工具/技能、延迟分位  
-2. **基准更新** — 种子 QA 导入 → 生产流量采样候选 → 评审 → 发布版本（fixed core / rolling production / regression）  
-3. **发版前评估** — 选定 `benchmark_version` + baseline/candidate release → 执行 → 评分 → 门禁（pass / fail / inconclusive）
+1. **Daily analytics** — session volume, completion, business success, ratings, DAU/MAU, tokens/cost, top KB/tools/skills, latency percentiles  
+2. **Benchmark updates** — seed QA import → sample production traffic → review → publish (`fixed_core` / `rolling_production` / `regression`)  
+3. **Pre-release evaluation** — pick `benchmark_version` + baseline/candidate releases → execute → score → gate (`pass` / `fail` / `inconclusive`)
 
-### 摄入路径
+### Intake paths
 
-| 路径 | 适用 |
-|------|------|
-| 规范事件 `POST .../events:batch` | Python SDK / 自建采集 |
+| Path | Use when |
+|------|----------|
+| Canonical `POST .../events:batch` | Python SDK / custom collectors |
 | `POST .../otlp/v1/traces` | OpenTelemetry OTLP/HTTP |
-| `POST .../sources/{id}/webhook` | 旧系统 JSON + 版本化 mapping |
-| `POST .../feedback` | 评分与结果修订 |
+| `POST .../sources/{id}/webhook` | Legacy JSON + versioned mapping |
+| `POST .../feedback` | Rating / outcome revisions |
 
-每条事件需含：`event_id`、`event_type`、`schema_version`、`occurred_at`、`payload`。服务端盖 `received_at`，并从凭证推导租户 / 项目 / 来源。
+Every event needs: `event_id`, `event_type`, `schema_version`, `occurred_at`, `payload`. The server stamps `received_at` and derives tenant / project / source from authentication.
 
 ---
 
-## 5. 角色怎么上手
+## 5. Get started by role
 
-| 你是谁 | 典型第一步 |
-|--------|------------|
-| **平台 / 项目 Admin** | 建 Agent 与 Source → 发凭证 → 配模块与角色绑定 → 触发基准 refresh |
-| **Benchmark Reviewer** | 看候选列表 → 批准/拒绝（绑定具体 revision）→ 不泄露 holdout |
-| **Agent Developer** | 登记 Release → 开 Experiment → 读结果与报告（仅授权 Agent） |
-| **Analyst / Viewer** | 查 `/analytics/metrics` 与 charts；成本等字段需额外授权 |
-| **Service Account** | 只用 Source / CI 凭证写事件或提交私有 CI 结果 |
+| You are | First steps |
+|---------|-------------|
+| **Platform / Project Admin** | Register agents & sources → issue credentials → set modules & role bindings → trigger benchmark refresh |
+| **Benchmark Reviewer** | List candidates → approve/reject (bound to a revision) → never leak holdout |
+| **Agent Developer** | Register releases → start experiments → read results/reports for authorized agents only |
+| **Analyst / Viewer** | Query `/analytics/metrics` and charts; cost and similar fields need extra grants |
+| **Service Account** | Use source / CI credentials only to write events or submit private CI results |
 
-**示例：Admin 注册 Agent（离线）**
+**Example: Admin registers an agent (offline)**
 
 ```bash
 export BASE=http://127.0.0.1:8000
-export PROJECT_ID=<demo 输出的 project_id>
+export PROJECT_ID=<project_id from demo>
 export H='-H X-Dataagent-Principal:demo-admin -H Content-Type:application/json'
 
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/agents" \
   -d '{"slug":"support-bot","name":"Support Bot","owner_team":"cx"}'
 ```
 
-**示例：给分析师绑定「仅 Agent Alpha」的 viewer 权限**
+**Example: Bind a viewer role to Agent Alpha only**
 
 ```bash
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/role-bindings" \
@@ -193,7 +195,7 @@ curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/role-bindings" \
   }'
 ```
 
-查看自己的有效权限：
+Inspect your effective access:
 
 ```bash
 curl -s $H "$BASE/v1/projects/$PROJECT_ID/access/effective"
@@ -201,24 +203,24 @@ curl -s $H "$BASE/v1/projects/$PROJECT_ID/access/effective"
 
 ---
 
-## 6. 用 SDK 接入生产流量
+## 6. Ingest production traffic with the SDK
 
-SDK **只依赖** `httpx` + `pydantic`，可单独安装，不必装服务端包。
+The SDK depends only on `httpx` and `pydantic` — installable without the server package.
 
 ```bash
 pip install -e ./packages/dataagent-sdk
-# 或发布后: pip install dataagent-sdk
+# after publish: pip install dataagent-sdk
 ```
 
-### 最小摄入示例
+### Minimal ingest example
 
 ```python
 from dataagent_sdk import Client
 
 client = Client(
     base_url="http://127.0.0.1:8000",
-    principal="demo-admin",          # 离线开发
-    # credential="da_xxx...",        # 生产：Source / Agent 凭证
+    principal="demo-admin",          # offline development
+    # credential="da_xxx...",        # production: source / agent credential
 )
 
 project_id = "..."
@@ -266,83 +268,80 @@ result = client.events.batch(
     project_id,
     source_id=source_id,
     events=events,
-    idempotency_key="batch-2024-06-01-1",  # 可安全重试
+    idempotency_key="batch-2024-06-01-1",  # safe to retry
 )
 print(result)
 # {"accepted": 3, "duplicate": 0, "rejected": 0, "content_conflict": 0, ...}
 ```
 
-### 支持的 `event_type`
+### Supported `event_type` values
 
 `session.start` · `session.end` · `run.completed` · `feedback.revision` · `model.call` · `retrieval` · `tool.call` · `skill.execution` · `span`
 
-### 批处理语义（很重要）
+### Batch semantics (important)
 
-| 状态 | 含义 |
-|------|------|
-| `accepted` | 已提交并落库 |
-| `duplicate` | 同 scope/source/`event_id` 且内容哈希相同（重放安全） |
-| `content_conflict` | 同 `event_id` 但内容变了 |
-| `rejected` | 未写入（如 Agent 不在 Source 授权列表）；**不泄露**「是否存在但无权」 |
+| Status | Meaning |
+|--------|---------|
+| `accepted` | Committed |
+| `duplicate` | Same scope/source/`event_id` and content hash (replay-safe) |
+| `content_conflict` | Same `event_id`, different content |
+| `rejected` | Not written (e.g. agent not on source allowlist); **does not leak** whether the agent exists outside the grant |
 
-### 把 SDK 当工具给 Agent 用
+### Expose the SDK as tools
 
 ```python
 tools = client.as_tools(project_id)
-# 默认允许授权读；写操作（摄入、导入 QA、开实验）需显式 scope
+# Authorized reads by default; mutations need explicit scopes
 for t in tools:
     print(t["name"], "mutation=" + str(t.get("mutation")))
 ```
 
-更多：`examples/sdk_quickstart.py`、`packages/dataagent-sdk/README.md`。
+More: [`examples/sdk_quickstart.py`](examples/sdk_quickstart.py), [`packages/dataagent-sdk/README.md`](packages/dataagent-sdk/README.md).
 
 ---
 
-## 7. 每日分析与图表
+## 7. Daily analytics and charts
 
-### 调度日指标
+### Schedule daily metrics
 
 ```bash
 dataagent enqueue-daily --date 2024-06-01
-# Worker 会认领 kind=analytics.daily 的作业
+# Worker claims jobs with kind=analytics.daily
 ```
 
-### 查询指标 / 图表
+### Query metrics / charts
 
 ```bash
-# 会话量
 curl -s $H "$BASE/v1/projects/$PROJECT_ID/analytics/metrics\
 ?metric=session_volume&start=2024-06-01&end=2024-06-07"
 
-# Plotly 兼容 JSON
 curl -s $H "$BASE/v1/projects/$PROJECT_ID/analytics/charts/session_volume\
 ?start=2024-06-01&end=2024-06-07"
 ```
 
-### 指标一览
+### Metric catalog
 
-| metric | 说明 |
-|--------|------|
-| `session_volume` | 按本地日的生产会话（含状态维度） |
-| `completion_rate` / `success_rate` | 技术完成 vs 业务成功（分母仅「已知结局」） |
-| `ratings` | 评分量表分离；同人同对象取最新有效修订 |
-| `dau` / `mau` | 伪匿名用户去重；跨 Agent 查询会再次去重 |
-| `tokens` / `cost` | 输入/输出/缓存；成本需 `cost` 字段权限 |
-| `top_kb` / `top_tools` / `top_skills` | 稳定 ID 排序，并列按 ID 决胜 |
-| `latency` | 端到端 run wall time 的 P50/P95 |
+| metric | Description |
+|--------|-------------|
+| `session_volume` | Production sessions by local day (incl. state dimension) |
+| `completion_rate` / `success_rate` | Technical completion vs business success (known outcomes only in denominator) |
+| `ratings` | Scales kept separate; latest effective revision wins per rater/subject |
+| `dau` / `mau` | Pseudonymous user dedupe; cross-agent queries dedupe again |
+| `tokens` / `cost` | Input/output/cache; cost requires the `cost` field grant |
+| `top_kb` / `top_tools` / `top_skills` | Stable ID ranking with deterministic ties |
+| `latency` | End-to-end run wall-time P50/P95 |
 
-口径细节见 [`docs/ANALYTICS.md`](docs/ANALYTICS.md)。示例图表：[`fixtures/charts/session_volume.example.json`](fixtures/charts/session_volume.example.json)。
+Definitions: [`docs/ANALYTICS.md`](docs/ANALYTICS.md). Chart sample: [`fixtures/charts/session_volume.example.json`](fixtures/charts/session_volume.example.json).
 
 ---
 
-## 8. 基准集：导入、刷新、发版
+## 8. Benchmarks: import, refresh, publish
 
-### ① 创建基准并导入种子 QA（→ v1）
+### ① Create a benchmark and import seed QA (→ v1)
 
-种子文件：CSV 或 JSONL，必填 `question`、`expected_answer`；可选 `external_case_id`、`language`、`task_category`、`rubric`、`document_labels`、`permitted_tools` 等。
+Seed file: CSV or JSONL with required `question` and `expected_answer`; optional `external_case_id`, `language`, `task_category`, `rubric`, `document_labels`, `permitted_tools`, etc.
 
 ```bash
-# 先 validate_only
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/benchmarks" \
   -d '{"slug":"core","name":"Core QA","ownership":"agent_scoped","owner_agent_id":"<agent>"}'
 
@@ -351,23 +350,22 @@ curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/benchmarks/$BENCH_ID/qa-import
     '{content:$c, format:"jsonl", validate_only:false, suite:"fixed_core"}')"
 ```
 
-校验失败会返回 **行号 + 字段 + 错误码**；全部合法才原子提交。首次发布种子导入即 **v1**。
+Validation failures return **row + field + error code**; commit is atomic only when every row is valid. First published seed import creates **v1**.
 
-### ② 从生产流量刷新候选（Admin）
+### ② Refresh candidates from production (Admin)
 
 ```bash
-# dry-run 预览
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/benchmarks/$BENCH_ID/refreshes" \
   -d '{"dry_run":true}'
 
-# 正式：返回 202 + job_id
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/benchmarks/$BENCH_ID/refreshes" \
   -d '{"dry_run":false}'
+# → 202 + job_id
 ```
 
-流水线会：按水位取样 → 分层/过采样失败 → 脱敏 → 生成候选（`proposed` / `needs_review`…）。**生产流量不能单独证明自己的 expected answer**；低分只会变成评审证据。
+Pipeline: sample from watermark → stratify / oversample failures → redact → propose candidates (`proposed` / `needs_review`…). **Production traffic cannot certify its own expected answer**; low ratings become review evidence only.
 
-### ③ 评审并发布新版本
+### ③ Review and publish a new version
 
 ```bash
 curl -s $H "$BASE/v1/projects/$PROJECT_ID/benchmarks/$BENCH_ID/candidates"
@@ -377,16 +375,16 @@ curl -s $H -X POST \
   -d '{"decision":"approved","expected_revision":1,"expected_answer":"Paris"}'
 
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/benchmarks/$BENCH_ID/versions"
-# 返回 version + manifest_hash；旧版本仍可复跑
+# returns version + manifest_hash; older versions remain runnable
 ```
 
-三个套件：`fixed_core` · `rolling_production` · `regression`。
+Suites: `fixed_core` · `rolling_production` · `regression`.
 
 ---
 
-## 9. 发版前实验
+## 9. Pre-release experiments
 
-### 登记版本
+### Register releases
 
 ```bash
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/releases" \
@@ -396,7 +394,7 @@ curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/releases" \
   -d '{"agent_id":"<agent>","version":"1.1.0-rc1","endpoint_url":"https://test.example/v1/chat"}'
 ```
 
-### 启动实验（202 + job）
+### Start an experiment (202 + job)
 
 ```bash
 curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/experiments" \
@@ -410,7 +408,7 @@ curl -s $H -X POST "$BASE/v1/projects/$PROJECT_ID/experiments" \
   }'
 ```
 
-Worker 执行后可查询：
+After the worker finishes:
 
 ```bash
 curl -s $H "$BASE/v1/projects/$PROJECT_ID/experiments/$EXP_ID"
@@ -418,41 +416,41 @@ curl -s $H "$BASE/v1/projects/$PROJECT_ID/experiments/$EXP_ID/results"
 curl -s $H "$BASE/v1/projects/$PROJECT_ID/experiments/$EXP_ID/report"
 ```
 
-### 门禁怎么读
+### How to read gates
 
-- 质量 / 可靠性 / 延迟 / 成本 **独立** 判定  
-- 总结果：`pass` | `fail` | `inconclusive`  
-- 缺关键证据或配对不足 → `inconclusive`（除非已有硬失败）  
-- **缺失 trace ≠ 0 分**（记为 missing）  
-- 叙述文案由 Azure 生成，**不影响**门禁计算  
+- Quality / reliability / latency / cost are judged **independently**  
+- Overall: `pass` | `fail` | `inconclusive`  
+- Missing critical evidence or too few pairs → `inconclusive` (unless a hard failure already decided `fail`)  
+- **Missing traces ≠ zero scores** (recorded as missing)  
+- Azure narrative text **does not** change gate decisions  
 
-私有 CI 可在跑完自家 Agent 后，用 `ci.submit` 凭证向 `/experiments/{id}/ci-results` 提交结果（带 `submission_key` 去重）。
+Private CI can submit results to `/experiments/{id}/ci-results` with a `ci.submit` credential and a deduplicating `submission_key`.
 
-报告示例：[`fixtures/reports/experiment.example.json`](fixtures/reports/experiment.example.json)。
+Report sample: [`fixtures/reports/experiment.example.json`](fixtures/reports/experiment.example.json).
 
 ---
 
-## 10. 权限与模块开关
+## 10. Permissions and module flags
 
-### 系统角色（起点）
+### System roles (starting point)
 
-| 角色 | 能力摘要 |
-|------|----------|
-| Tenant Admin | 建项目、委托项目管理；**原文/成本等仍要另授** |
-| Project Admin | Agent/Source/模块/组/委托/触发 refresh |
-| Agent Owner | 所辖 Agent 配置与试跑，无自动升到项目/租户管理 |
-| Agent Developer | 看指标/trace，跑/审实验 |
-| Benchmark Reviewer | 审已授权数据集或 Agent 范围候选 |
-| Analyst / Viewer | 读授权聚合；成本/下钻/原文/导出需显式字段权 |
-| Service Account | 仅绑定资源上的 source.write / ci.submit 等 |
+| Role | Summary |
+|------|---------|
+| Tenant Admin | Create projects, delegate project admin; **raw text / cost still need separate data grants** |
+| Project Admin | Agents/sources/modules/groups/delegation/trigger refresh |
+| Agent Owner | Config and test runs for allocated agents — no automatic project/tenant admin |
+| Agent Developer | Metrics/traces; run/review experiments |
+| Benchmark Reviewer | Review granted datasets or agent-scoped candidates |
+| Analyst / Viewer | Read authorized aggregates; cost/drill-down/raw/export need field grants |
+| Service Account | Bound `source.write` / `ci.submit` only |
 
-绑定选择器（项目级 **三选一**）：单个 Agent · Agent Group · `whole_project=true`。  
-**禁止**把「Agent A 的成本权」和「Agent B 的 trace 权」拼出 B 的成本。
+Project binding selector (**exactly one**): single agent · agent group · `whole_project=true`.  
+**Never** combine “cost on Agent A” with “traces on Agent B” to reveal B’s costs.
 
-### 模块开关
+### Module flags
 
-项目可关：`sessions` `feedback` `cost` `activity` `kb` `tools` `skills` `benchmark` `experiments` `reports`。  
-模块在 **通过范围鉴权之后** 再检查；可在生产文本采集关闭时仍做纯 QA 评估。
+Projects may disable: `sessions` `feedback` `cost` `activity` `kb` `tools` `skills` `benchmark` `experiments` `reports`.  
+Modules are checked **after** scope authorization. QA-only evaluation is allowed when production text capture is off.
 
 ```bash
 curl -s $H -X PATCH "$BASE/v1/projects/$PROJECT_ID/settings" \
@@ -461,111 +459,110 @@ curl -s $H -X PATCH "$BASE/v1/projects/$PROJECT_ID/settings" \
 
 ---
 
-## 11. HTTP API 速查
+## 11. HTTP API cheat sheet
 
-所有业务路由前缀：`/v1/projects/{project_id}`
+Business routes live under `/v1/projects/{project_id}`.
 
-| 族 | 路径 | 用途 |
-|----|------|------|
-| 目录 | `/agents` `/agent-groups` | 注册、暂停、归档、组成员 |
-| 权限 | `/roles` `/memberships` `/role-bindings` `/access/effective` | 授权与自查 |
-| 来源 | `/sources` `/sources/{id}/mapping-revisions` `/sources/{id}/credentials` | 映射 dry-run/发布、凭证轮换 |
-| 摄入 | `/events:batch` `/feedback` `/otlp/v1/traces` `/sources/{id}/webhook` | 三类入口 |
-| 分析 | `/analytics/metrics` `/analytics/charts/{metric}` | 表与 Plotly JSON |
-| 基准 | `/benchmarks` `.../qa-imports` `.../refreshes` `.../candidates` `.../versions` | 生命周期 |
-| 实验 | `/experiments` `.../results` `.../report` `.../cancel` `.../ci-results` | 对比发版 |
-| 作业 | `/jobs/{id}` | 轮询 202 异步任务 |
-| 设置 | `/settings` | 模块与项目配置 |
+| Family | Paths | Purpose |
+|--------|-------|---------|
+| Catalog | `/agents` `/agent-groups` | Register, pause, archive, group membership |
+| Access | `/roles` `/memberships` `/role-bindings` `/access/effective` | Grants and self-inspection |
+| Sources | `/sources` `.../mapping-revisions` `.../credentials` | Mapping dry-run/publish, credential rotation |
+| Intake | `/events:batch` `/feedback` `/otlp/v1/traces` `.../webhook` | Three intake paths |
+| Analytics | `/analytics/metrics` `/analytics/charts/{metric}` | Tables and Plotly JSON |
+| Benchmarks | `/benchmarks` `.../qa-imports` `.../refreshes` `.../candidates` `.../versions` | Lifecycle |
+| Experiments | `/experiments` `.../results` `.../report` `.../cancel` `.../ci-results` | Release comparison |
+| Jobs | `/jobs/{id}` | Poll async 202 work |
+| Settings | `/settings` | Modules and project config |
 
-约定：
+Conventions:
 
-- 异步创建 → **HTTP 202** + `job_id` + `status_url`  
-- 可重试的写操作带 `Idempotency-Key`（按 project + operation 作用域）  
-- 稳定错误码 + `X-Request-Id`  
-- OpenAPI：运行中的 `/docs`
+- Async creates → **HTTP 202** + `job_id` + `status_url`  
+- Retryable writes accept `Idempotency-Key` (scoped by project + operation)  
+- Stable error codes + `X-Request-Id`  
+- OpenAPI at `/docs` while the API is running  
 
-Shell 示例：[`examples/api_quickstart.sh`](examples/api_quickstart.sh)。
+Shell sample: [`examples/api_quickstart.sh`](examples/api_quickstart.sh).
 
 ---
 
-## 12. 部署与迁移
+## 12. Deploy and migrate
 
-| 阶段 | 内容 |
-|------|------|
-| **Phase 1** | AKS：`deploy/aks/` — API Deployment、Worker Deployment、Service、日调度 CronJob、迁移 Job；Azure OpenAI 用 Entra Workload ID |
-| **Phase 2** | Worker 迁阿里云 Agent Sandbox：`deploy/alibaba-sandbox/` — **同一镜像 digest**；DB / 密钥 / 稳定 API / 调度留在 Sandbox 外 |
+| Phase | Content |
+|-------|---------|
+| **Phase 1** | AKS: `deploy/aks/` — API + Worker Deployments, Service, daily CronJob, migrate Job; Azure OpenAI via Entra Workload ID |
+| **Phase 2** | Move Worker to Alibaba Cloud Agent Sandbox: `deploy/alibaba-sandbox/` — **same image digest**; DB / secrets / stable API / scheduler stay outside |
 
 ```bash
-# 构建单一镜像
 docker build -t dataagent:local .
-# 入口: api | worker | enqueue-daily | migrate | smoke
+# entrypoints: api | worker | enqueue-daily | migrate | smoke
 docker run --rm dataagent:local smoke
 ```
 
-中断与替换演练（租约过期、fencing、回滚到 AKS Worker）见 [`docs/MIGRATION_DRILL.md`](docs/MIGRATION_DRILL.md)。
+Interruption / replacement drill: [`docs/MIGRATION_DRILL.md`](docs/MIGRATION_DRILL.md).
 
 ---
 
-## 13. 配置与排障
+## 13. Configuration and troubleshooting
 
-### 常用环境变量
+### Common environment variables
 
-| 变量 | 说明 |
-|------|------|
-| `DATAAGENT_DATABASE_URL` | `postgresql+psycopg://...`（必须 Postgres） |
-| `DATAAGENT_AUTH_MODE` | `offline`（开发）或 `oidc`（生产） |
-| `DATAAGENT_ENVIRONMENT` | `development` / `test` / `production`（生产禁 offline） |
+| Variable | Meaning |
+|----------|---------|
+| `DATAAGENT_DATABASE_URL` | `postgresql+psycopg://...` (Postgres required) |
+| `DATAAGENT_AUTH_MODE` | `offline` (dev) or `oidc` (prod) |
+| `DATAAGENT_ENVIRONMENT` | `development` / `test` / `production` (production rejects offline) |
 | `DATAAGENT_AZURE_TRANSPORT` | `fake` \| `live` |
-| `DATAAGENT_AZURE_OPENAI_ENDPOINT` / `_DEPLOYMENT` | 直播时必填 |
-| `DATAAGENT_AZURE_USE_ENTRA` | 默认 true；可改为 API Key 注入 |
-| `DATAAGENT_HMAC_PEPPER` | 用户伪匿名 HMAC（勿提交仓库） |
-| `DATAAGENT_WORKER_ID` | Worker 实例名（租约所有者） |
+| `DATAAGENT_AZURE_OPENAI_ENDPOINT` / `_DEPLOYMENT` | Required for live |
+| `DATAAGENT_AZURE_USE_ENTRA` | Default true; API key injection is the fallback |
+| `DATAAGENT_HMAC_PEPPER` | User pseudonym HMAC (never commit) |
+| `DATAAGENT_WORKER_ID` | Worker instance name (lease owner) |
 
-完整运维说明：[`docs/OPERATOR.md`](docs/OPERATOR.md)。依赖理由：[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md)。
+Ops: [`docs/OPERATOR.md`](docs/OPERATOR.md). Dependency rationale: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
-### 常见问题
+### FAQ
 
-| 现象 | 处理 |
-|------|------|
-| `readyz` → `schema_missing` | 先跑 `dataagent migrate` |
-| 摄入 `rejected` / `agent_not_permitted` | Agent 未加入 Source 的 `allowed_agent_ids`，或 Agent 已 `paused`/`archived` |
-| `403 not_a_member` | 主体缺少该项目（或租户级）membership |
-| `idempotency_conflict` | 同一 Key 换了请求体；换 Key 或保持体一致 |
-| 实验一直 `queued` | 确认 Worker 在跑：`dataagent worker` |
-| 本地无 Azure 密钥 | 保持 `DATAAGENT_AZURE_TRANSPORT=fake` |
+| Symptom | Fix |
+|---------|-----|
+| `readyz` → `schema_missing` | Run `dataagent migrate` first |
+| Ingest `rejected` / `agent_not_permitted` | Agent missing from source `allowed_agent_ids`, or agent is `paused`/`archived` |
+| `403 not_a_member` | Principal lacks project (or tenant-wide) membership |
+| `idempotency_conflict` | Same key, different body — change key or keep body identical |
+| Experiment stuck `queued` | Ensure a worker is running: `dataagent worker` |
+| No Azure key locally | Keep `DATAAGENT_AZURE_TRANSPORT=fake` |
 
-### 测试
+### Tests
 
 ```bash
 export DATAAGENT_DATABASE_URL=postgresql+psycopg://dataagent:dataagent@127.0.0.1:5432/dataagent_test
 pytest -q -m "not live"
-# 含 1000 Agent 负载基线: pytest -q -m slow
+# 1000-agent load baseline: pytest -q -m slow
 ```
 
 ---
 
-## 14. 进一步阅读
+## 14. Further reading
 
-| 文档 | 内容 |
-|------|------|
-| [`AGENTS.md`](AGENTS.md) | 给编码 Agent 的仓库约定 |
-| [`docs/OPERATOR.md`](docs/OPERATOR.md) | 启动、采集、映射、回放、迁移 |
-| [`docs/ANALYTICS.md`](docs/ANALYTICS.md) | 指标定义 |
-| [`docs/MIGRATION_DRILL.md`](docs/MIGRATION_DRILL.md) | Worker 替换演练与 live check 清单 |
-| [`docs/CLOSURE_SUMMARY.md`](docs/CLOSURE_SUMMARY.md) | 里程碑交付对照 |
-| [`fixtures/`](fixtures/) | 事件、OTLP、QA、图表与报告样例 |
-| [`deploy/`](deploy/) | AKS 与 Sandbox 清单 |
+| Doc | Content |
+|-----|---------|
+| [`AGENTS.md`](AGENTS.md) | Conventions for coding agents |
+| [`docs/OPERATOR.md`](docs/OPERATOR.md) | Startup, collection, mapping, replay, migration |
+| [`docs/ANALYTICS.md`](docs/ANALYTICS.md) | Metric definitions |
+| [`docs/MIGRATION_DRILL.md`](docs/MIGRATION_DRILL.md) | Worker replacement drill and live-check list |
+| [`docs/CLOSURE_SUMMARY.md`](docs/CLOSURE_SUMMARY.md) | Milestone delivery map |
+| [`fixtures/`](fixtures/) | Event, OTLP, QA, chart, and report samples |
+| [`deploy/`](deploy/) | AKS and Sandbox manifests |
 
 ---
 
-## 包结构
+## Packages
 
-| 包 | 职责 |
-|----|------|
-| `dataagent` | FastAPI API、Worker、摄入、分析、基准、实验、鉴权、作业 |
-| `dataagent-sdk` | 独立可安装客户端：`events` / `analytics` / `benchmarks` / `experiments` / `as_tools()` |
+| Package | Role |
+|---------|------|
+| `dataagent` | FastAPI API, Worker, intake, analytics, benchmarks, experiments, auth, jobs |
+| `dataagent-sdk` | Independently installable client: `events` / `analytics` / `benchmarks` / `experiments` / `as_tools()` |
 
-**CLI 入口：** `dataagent api` · `worker` · `enqueue-daily` · `migrate` · `smoke` · `demo`
+**CLI entry points:** `dataagent api` · `worker` · `enqueue-daily` · `migrate` · `smoke` · `demo`
 
 ---
 
